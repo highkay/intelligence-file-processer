@@ -1,0 +1,5 @@
+{
+  "name": "Intelligent File Processor",
+  "description": "Upload multiple text files to have an AI clean, merge, deduplicate, and structure the content into a coherent document.",
+  "requestFramePermissions": []
+}

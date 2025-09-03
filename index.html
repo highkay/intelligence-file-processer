@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>File Content Processor</title>
+    <link rel="stylesheet" href="index.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "@google/genai": "https://esm.sh/@google/genai@^0.12.0",
+          "marked": "https://esm.sh/marked@^12.0.2"
+        }
+      }
+    </script>
+    <script type="module" src="index.tsx"></script>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>智能文件整合工具</h1>
+        <p>上传多个文本文件，AI 将为您清理、整合、去重并构建结构化文档。</p>
+      </header>
+
+      <section class="upload-section">
+        <label for="file-upload" class="upload-label" aria-label="Select files to upload">
+          选择文件
+        </label>
+        <input type="file" id="file-upload" multiple hidden />
+        <div id="file-list-container"></div>
+      </section>
+
+      <button id="process-btn" disabled>处理文件</button>
+
+      <section id="result-container" class="hidden">
+        <div id="loader" class="hidden">
+          <div class="spinner"></div>
+          <p>正在处理，请稍候... 这可能需要一些时间。</p>
+        </div>
+        <div id="error-message" class="hidden"></div>
+        <div id="output-area" class="hidden">
+          <h2>处理结果</h2>
+          <div id="output-content"></div>
+          <button id="download-btn">下载结果 (.md)</button>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
