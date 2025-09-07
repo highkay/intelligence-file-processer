@@ -4,6 +4,11 @@
  */
 import { GoogleGenAI } from "@google/genai";
 import { marked } from "marked";
+import * as pdfjsLib from 'pdfjs-dist/build/pdf.mjs';
+import * as XLSX from 'xlsx';
+
+// --- Setup for PDF.js worker ---
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://esm.sh/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.mjs`;
 
 // --- DOM Elements ---
 const fileUploadInput = document.getElementById('file-upload') as HTMLInputElement;
@@ -61,9 +66,10 @@ const PROMPT_TEMPLATE = `
     - 对并列信息使用无序列表（\`-\`）或有序列表（\`1.\`）。
     - 对关键术语或重点内容可以使用**粗体**进行强调。
 - **语言**: 使用简洁、中立、专业、易于理解的语言风格。
+- **内容**: 直接输出处理后的结构化文档，不要包含任何前言、引语、解释或总结性的文字。例如，不要说“这是您处理后的文档：”或“我已经根据您的要求完成了整合。”。
 
-#### 4. 待处理文本 (Text to Process)
-[ {file_content} ]
+#### 4. 待处理文件 (Files to Process)
+请处理我在此次请求中提供的所有文件（包括文本、PDF、Excel表格等），并根据上述指令对它们的内容进行整合。
 `;
 
 
@@ -122,16 +128,56 @@ function handleFileRemove(event: Event) {
     }
 }
 
+/** Extracts text content from various file types. */
+async function extractTextFromFile(file: File): Promise<string> {
+    const extension = file.name.split('.').pop()?.toLowerCase() || '';
 
-/** Reads a file and returns its content as a string promise */
-function readFileAsText(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = () => reject(reader.error);
-    reader.readAsText(file);
-  });
+    // Handle text-based files
+    if (['txt', 'md'].includes(extension) || file.type.startsWith('text/')) {
+        return file.text();
+    }
+
+    // Handle PDF
+    if (extension === 'pdf' || file.type === 'application/pdf') {
+        try {
+            const arrayBuffer = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
+            let textContent = '';
+            for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i);
+                const text = await page.getTextContent();
+                // A space is added between items to avoid merging words.
+                textContent += text.items.map(item => ('str' in item ? item.str : '')).join(' ') + '\n';
+            }
+            return textContent;
+        } catch (e) {
+            console.error(`Error parsing PDF ${file.name}:`, e);
+            return `[Error: Could not extract text from PDF file: ${file.name}]`;
+        }
+    }
+
+    // Handle XLSX
+    if (extension === 'xlsx' || file.type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') {
+        try {
+            const arrayBuffer = await file.arrayBuffer();
+            const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+            let fullText = '';
+            workbook.SheetNames.forEach(sheetName => {
+                const worksheet = workbook.Sheets[sheetName];
+                const csv = XLSX.utils.sheet_to_csv(worksheet);
+                fullText += `\n--- Sheet: ${sheetName} ---\n${csv}\n`;
+            });
+            return fullText;
+        } catch (e) {
+            console.error(`Error parsing XLSX ${file.name}:`, e);
+            return `[Error: Could not extract text from Excel file: ${file.name}]`;
+        }
+    }
+
+    console.warn(`Unsupported file type: ${file.name} (${file.type}). Skipping content.`);
+    return `[Unsupported file type: ${file.name}. Content could not be extracted.]`;
 }
+
 
 /** Main function to process files */
 async function processFiles() {
@@ -145,13 +191,19 @@ async function processFiles() {
   errorMessage?.classList.add('hidden');
 
   try {
-    const fileContents = await Promise.all(selectedFiles.map(readFileAsText));
-    const combinedContent = fileContents.join('\n\n---\n\n');
-    const finalPrompt = PROMPT_TEMPLATE.replace('{file_content}', combinedContent);
+    const fileContents = await Promise.all(
+        selectedFiles.map(async (file) => {
+            const textContent = await extractTextFromFile(file);
+            // Wrap content with file name for context
+            return `\n\n--- START OF FILE: ${file.name} ---\n${textContent}\n--- END OF FILE: ${file.name} ---`;
+        })
+    );
+    
+    const combinedFileText = fileContents.join('');
 
     const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash',
-        contents: finalPrompt,
+        contents: { parts: [{ text: PROMPT_TEMPLATE }, { text: combinedFileText }] },
     });
     
     markdownResult = response.text;
